@@ -14,7 +14,8 @@ ext {
 }
 
 dependencies {
-
     compile group: 'io.vertx', name: 'vertx-core', version: "${vertxVersion}"
     compile group: 'io.vertx', name: 'vertx-web', version: "${vertxVersion}"
+
+    compile group: 'io.vertx', name: 'vertx-redis-client', version: "${vertxVersion}"
 }
