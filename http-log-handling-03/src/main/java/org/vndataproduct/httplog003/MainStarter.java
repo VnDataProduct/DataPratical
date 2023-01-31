@@ -1,4 +1,4 @@
-package org.vndataproduct.httplog002;
+package org.vndataproduct.httplog003;
 
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -10,25 +10,27 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.handler.BodyHandler;
-import io.vertx.redis.client.Redis;
-import io.vertx.redis.client.RedisAPI;
-import io.vertx.redis.client.RedisConnection;
-import io.vertx.redis.client.RedisOptions;
+import io.vertx.redis.client.*;
 
+import java.io.File;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 
 public class MainStarter {
 
-   RedisAPI redisAPI = null;
-
-   public void setRedisAPI(RedisAPI redisAPI) {
-      this.redisAPI = redisAPI;
+   //RedisAPI redisAPI = null;
+   //public void setRedisAPI(RedisAPI redisAPI) { this.redisAPI = redisAPI; }
+   RedisConnection redisConn = null;
+   public void setRedisConn(RedisConnection redisConn) {
+      this.redisConn = redisConn;
    }
 
    DateFormat hDF = new SimpleDateFormat("yyyy-MM-dd-HH");
-   DateFormat fileDF = new SimpleDateFormat("'log_'yyyy-MM-dd-HH'.tsv'");
+   DateFormat fileDF = new SimpleDateFormat(
+         "'logs/register_event/year='yyyy'/month='MM'/day='dd'/hour='HH'/register_event_log_'yyyy-MM-dd-HH'.tsv'");
 
    public void handleRequest(RoutingContext context) {
       //Get response data from context
@@ -50,20 +52,22 @@ public class MainStarter {
    private void sumToRedis(Date receiveTime, JsonObject row) {
       boolean isSuccess = row.getString("result").equals("success");
       String hKey = hDF.format(receiveTime);
-      if(isSuccess) {
-         this.redisAPI.hincrby(hKey, "success_device:" + row.getString("device"), "1");
-         this.redisAPI.hincrby(hKey, "success_browser:" + row.getString("browser"), "1");
-         this.redisAPI.hincrby(hKey, "success_time", row.getInteger("duration") + "");
-         if(row.getString("accountId") != null)
-            this.redisAPI.hincrby(hKey, "success_reg_user", "1");
+      List<Request> requests = new ArrayList<>();
+      if (isSuccess) {
+         requests.add(Request.cmd(Command.HINCRBY, hKey, "success_device:" + row.getString("device"), 1));
+         requests.add(Request.cmd(Command.HINCRBY, hKey, "success_browser:" + row.getString("browser"), 1));
+         requests.add(Request.cmd(Command.HINCRBY, hKey, "success_time", row.getInteger("duration")));
+         if (row.getString("accountId") != null)
+            requests.add(Request.cmd(Command.HINCRBY, hKey, "success_reg_user", 1));
       } else {
-         this.redisAPI.hincrby(hKey, "error_device:" + row.getString("device"), "1");
-         this.redisAPI.hincrby(hKey, "error_browser:" + row.getString("browser"), "1");
-         this.redisAPI.hincrby(hKey, "error_time", row.getInteger("duration") + "");
-         this.redisAPI.hincrby(hKey, "error_cause:" + row.getString("message"), "1");
-         if(row.getString("accountId") != null)
-            this.redisAPI.hincrby(hKey, "error_reg_user", "1");
+         requests.add(Request.cmd(Command.HINCRBY, hKey, "error_device:" + row.getString("device"), 1));
+         requests.add(Request.cmd(Command.HINCRBY, hKey, "error_browser:" + row.getString("browser"), 1));
+         requests.add(Request.cmd(Command.HINCRBY, hKey, "error_time", row.getInteger("duration")));
+         requests.add(Request.cmd(Command.HINCRBY, hKey, "error_cause:" + row.getString("message"), 1));
+         if (row.getString("accountId") != null)
+            requests.add(Request.cmd(Command.HINCRBY, hKey, "error_reg_user", 1));
       }
+      this.redisConn.batch(requests);
    }
 
    //Since FileSystem instance need to be created from Vertx instance, we have to put in method
@@ -76,7 +80,13 @@ public class MainStarter {
       sb.append(row.getString("message")).append("\t");
       sb.append(row.getInteger("duration")).append("\t");
       sb.append(row.getString("accountId", ""));
-      fs.writeFile(fileDF.format(receiveTime), Buffer.buffer(sb.toString()));
+      String fileName = fileDF.format(receiveTime);
+      //Because log files are writting to directories now, so we have to create it whenever file is not created yet
+      if(!fs.existsBlocking(fileName)) {
+         fs.mkdirsBlocking(fileName.substring(0, fileName.lastIndexOf("/")));
+         fs.createFileBlocking(fileName);
+      }
+      fs.writeFile(fileName, Buffer.buffer(sb.toString()));
    }
 
    public static void main(String[] args) {
@@ -94,7 +104,8 @@ public class MainStarter {
             .setConnectionString("redis://localhost:6379");
       Future<RedisConnection> connect = Redis.createClient(vertx, options).connect();
       connect.onSuccess(res -> {
-         handlerObj.setRedisAPI(RedisAPI.api(res));
+         //handlerObj.setRedisAPI(RedisAPI.api(res));
+         handlerObj.setRedisConn(res);
          //We need to make sure Redis connection is established successfully before init the HTTP service
          HttpServer httpServer = vertx.createHttpServer();
          httpServer.requestHandler(router).listen(8080);
