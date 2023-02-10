@@ -1,0 +1,22 @@
+group 'org.vndataproduct'
+version '1.0'
+
+apply plugin: 'java'
+apply plugin: 'maven'
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+ext {
+    vertxVersion = '4.3.7'
+}
+
+dependencies {
+    compile group: 'io.vertx', name: 'vertx-core', version: "${vertxVersion}"
+    compile group: 'io.vertx', name: 'vertx-web', version: "${vertxVersion}"
+
+    compile group: 'io.vertx', name: 'vertx-redis-client', version: "${vertxVersion}"
+    compile group: 'io.vertx', name: 'vertx-pg-client', version: "${vertxVersion}"
+}
