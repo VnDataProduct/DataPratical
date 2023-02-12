@@ -1,4 +1,4 @@
-package org.vndataproduct.httplog003;
+package org.vndataproduct.httplog004;
 
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -10,13 +10,14 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.handler.BodyHandler;
-import io.vertx.pgclient.PgConnectOptions;
-import io.vertx.pgclient.PgPool;
+import io.vertx.jdbcclient.JDBCConnectOptions;
+import io.vertx.jdbcclient.JDBCPool;
 import io.vertx.redis.client.*;
 import io.vertx.sqlclient.PoolOptions;
-import io.vertx.sqlclient.SqlClient;
+import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.RowSet;
+import io.vertx.sqlclient.Tuple;
 
-import java.io.File;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -25,12 +26,21 @@ import java.util.List;
 
 public class MainStarter {
 
-   //RedisAPI redisAPI = null;
-   //public void setRedisAPI(RedisAPI redisAPI) { this.redisAPI = redisAPI; }
    RedisConnection redisConn = null;
+
    public void setRedisConn(RedisConnection redisConn) {
       this.redisConn = redisConn;
    }
+
+   //Need to use jdbcPool, so we initialize variable here
+   JDBCPool jdbcPool = null;
+
+   public void setJdbcPool(JDBCPool jdbcPool) {
+      this.jdbcPool = jdbcPool;
+   }
+
+   //We also need to format timestamp when inserting to database
+   DateFormat sqlF = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS");
 
    DateFormat hDF = new SimpleDateFormat("yyyy-MM-dd-HH");
    DateFormat fileDF = new SimpleDateFormat(
@@ -48,6 +58,7 @@ public class MainStarter {
          Date receiveTime = new Date();
          this.sumToRedis(receiveTime, dataBody);
          this.writeLog(context.vertx(), receiveTime, dataBody);
+         this.saveToPostgres(receiveTime, dataBody);
       } catch (Exception e) {
          e.printStackTrace();
       }
@@ -74,22 +85,20 @@ public class MainStarter {
       this.redisConn.batch(requests);
    }
 
-   private void saveToPostgres(Vertx vertx, Date receiveTime, JsonObject raw) {
-      SqlClient client = PgPool.client(null, null);
-      client.close()
-// A simple query
-      client
-            .query("SELECT * FROM users WHERE id='julien'")
-            .execute(ar -> {
-               if (ar.succeeded()) {
-                  RowSet<Row> result = ar.result();
-                  System.out.println("Got " + result.size() + " rows ");
-               } else {
-                  System.out.println("Failure: " + ar.cause().getMessage());
-               }
-
-               // Now close the pool
-               client.close();
+   private void saveToPostgres(Date receiveTime, JsonObject raw) {
+      jdbcPool
+            .preparedQuery("INSERT INTO raw_data(event_time, device, browser, result, message, duration, account_id) " +
+                  "VALUES (?, ?, ?, ?, ?, ?, ?)")
+            .execute(Tuple.of(sqlF.format(receiveTime), raw.getString("device"), raw.getString("browser"),
+                  raw.getString("result"), raw.getString("message"), raw.getInteger("duration"),
+                  raw.getInteger("account_id")))
+            .onSuccess(rows -> {
+               Row lastInsertId = rows.property(JDBCPool.GENERATED_KEYS);
+               System.out.println("New ID is " + lastInsertId.getInteger(0));
+            })
+            .onFailure(cause -> {
+               cause.printStackTrace();
+               System.out.println("Failure: " + cause.getMessage());
             });
    }
 
@@ -104,8 +113,8 @@ public class MainStarter {
       sb.append(row.getInteger("duration")).append("\t");
       sb.append(row.getString("accountId", ""));
       String fileName = fileDF.format(receiveTime);
-      //Because log files are writting to directories now, so we have to create it whenever file is not created yet
-      if(!fs.existsBlocking(fileName)) {
+      //Because log files are writing to directories now, so we have to create it whenever file is not created yet
+      if (!fs.existsBlocking(fileName)) {
          fs.mkdirsBlocking(fileName.substring(0, fileName.lastIndexOf("/")));
          fs.createFileBlocking(fileName);
       }
@@ -122,16 +131,22 @@ public class MainStarter {
       router.post("/accept_tracking")
             .handler(BodyHandler.create())
             .handler(handlerObj::handleRequest);
-      //Create Postgres pooled client
-      PgConnectOptions connectOptions = new PgConnectOptions()
-            .setPort(5432)
-            .setHost("localhost")
-            .setDatabase("postgres")
-            .setUser("postgres")
-            .setPassword("postgres");
 
-      // Pool options
-      PoolOptions poolOptions = new PoolOptions().setMaxSize(2);
+      //Create Postgres pooled client
+      JDBCPool pool = JDBCPool.pool(
+            vertx,
+            // configure the connection
+            new JDBCConnectOptions()
+                  .setJdbcUrl("jdbc:postgresql://localhost:5432/postgres")
+                  .setUser("postgres")
+                  .setPassword("password"),
+            // configure the pool
+            new PoolOptions()
+                  .setMaxSize(4)
+                  .setName("postgres-pool")
+      );
+      handlerObj.setJdbcPool(pool);
+
       //Initialize Redis instance
       RedisOptions options = new RedisOptions()
             .setConnectionString("redis://localhost:6379");

@@ -18,5 +18,10 @@ dependencies {
     compile group: 'io.vertx', name: 'vertx-web', version: "${vertxVersion}"
 
     compile group: 'io.vertx', name: 'vertx-redis-client', version: "${vertxVersion}"
-    compile group: 'io.vertx', name: 'vertx-pg-client', version: "${vertxVersion}"
+
+    compile group: 'io.vertx', name: 'vertx-jdbc-client', version: "${vertxVersion}"
+    implementation group: 'io.agroal', name: 'agroal-pool', version: '1.0'
+    implementation group: 'org.postgresql', name: 'postgresql', version: '42.5.1'
+
+
 }
