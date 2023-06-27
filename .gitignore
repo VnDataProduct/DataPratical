@@ -4,3 +4,7 @@ gradle
 build
 .DS_Store
 *.tsv
+spark-warehouse
+test.parquet
+vn_stock_data
+vn_stock_enrichment
