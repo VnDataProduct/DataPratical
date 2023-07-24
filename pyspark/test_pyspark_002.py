@@ -11,8 +11,7 @@ spark = SparkSession.builder \
     .config("spark.sql.ansi.enabled", "true") \
     .getOrCreate()
 
-path = "/opt/spark-data/vn_stock_data/"
-
+path = "./vn_stock_data/"
 
 def ema_calc(curr_value, last_ema, period):
     if last_ema:
@@ -55,7 +54,7 @@ cal_df = spark.sql(
 
 #Join two dataframes
 df = df.alias("a").join(cal_df.alias('b'), [df.ticker == cal_df.ticker, df.date == cal_df.date], how='inner') \
-    .select('a.*', round('b.EMA7', 4), round('b.EMA30', 4), round('b.EMA60', 4))
+    .select('a.*', round('b.EMA7', 4).alias("EMA7"), round('b.EMA30', 4).alias("EMA30"), round('b.EMA60', 4).alias("EMA60"))
 
 # df.show(100)
-df.write.csv('/opt/spark-data/vn_stock_enrichment', mode="overwrite")
+df.write.csv('./vn_stock_enrichment', header=True, mode="overwrite")
